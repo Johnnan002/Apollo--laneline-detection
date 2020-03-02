@@ -247,7 +247,6 @@ class network():
             self.model=Unet_resnet101(4,2048,64,1)
          return self.model
 
-
 #train lr save_model
 #cycle lr  cosine lr
 
@@ -286,6 +285,7 @@ def train():
     val_data=DatasetFromCSV(val_data_list,transform)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size)
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=batch_size)
+    print()
     #=================================================================
     # Adam
     #=================================================================
@@ -303,7 +303,7 @@ def train():
     #=================================================================
     #Train loop
     #=================================================================
-    early_stopping = EarlyStopping(patience=20, verbose=True)#
+    early_stopping = EarlyStopping(patience=10, verbose=True)#1
     since = time()
     for e in range(epoch):
         print(e)
@@ -315,43 +315,48 @@ def train():
         #train
         #===============================================================
         model.train()
-        for x,y in tqdm(train_loader):#训练数据
-            y = torch.unsqueeze(y, 1).long()
-            y_=make_one_hot(y,numclasses).cuda(device=device_list[0])
-            x=x.cuda(device=device_list[0])
-            y=y.cuda(device=device_list[0])
-            opt.zero_grad()#梯度置为0
-            y_pre=model(x)
-            DLoss=DiceLoss()
-            BLoss=MySoftmaxCrossEntropyLoss(numclasses)
-            loss=lam*DLoss(y_pre,y_)+(1-lam)*BLoss(y_pre,y)#计算loss
-            #loss=BLoss(y_pre,y)
-            train_loss+=loss.item()
-            loss.backward()#求导
-            opt.step()#更新
-            scheduler.step(e)
+        for x_batch,y_batch in tqdm(train_loader):#训练数据
+            for x,y in zip(x_batch,y_batch):
+                y = torch.unsqueeze(y, 0).long()
+                x = torch.unsqueeze(x, 0)
+                y = torch.unsqueeze(y, 0).long()
+                y_=make_one_hot(y,numclasses).cuda(device=device_list[0])
+                x=x.cuda(device=device_list[0])
+                y=y.cuda(device=device_list[0])
+                opt.zero_grad()#梯度置为0
+                y_pre=model(x)
+                DLoss=DiceLoss()
+                BLoss=MySoftmaxCrossEntropyLoss(numclasses)
+                loss=lam*DLoss(y_pre,y_)+(1-lam)*BLoss(y_pre,y)#计算loss
+                #loss=BLoss(y_pre,y)
+                train_loss+=loss.item()
+                loss.backward()#求导
+                opt.step()#更新
+                scheduler.step(e)
         #========================================================================
         #  validata
         #========================================================================
         model.eval()# changes the forward() behaviour of the module it is called upon. eg, it disables dropout and has batch norm use the entire population statistics
         torch.no_grad() # disables tracking of gradients in autograd.
         result = {"TP": {i: 0 for i in range(8)}, "TA": {i: 0 for i in range(8)}}
-        for x1, y1 in tqdm(val_loader):
-            y1_ = make_one_hot(y1, numclasses).cuda(device=device_list[0])
-            y1 = torch.unsqueeze(y1, 1).long()
-            x1, y1 = x1.cuda(device=device_list[0]), y1.cuda(device=device_list[0])
-            y_pred1 = model(x1)
-            #计算 dice_loss ce_loss
-            DLoss1=DiceLoss()
-            BLoss1 = MySoftmaxCrossEntropyLoss(numclasses)
-            loss1=lam*DLoss1(y_pred1,y1_)+(1-lam)*BLoss1(y_pred1,y1)#计算loss
-            val_loss+=loss1.item()
-
-            #计算metric
-            pred = torch.argmax(F.softmax(y_pred1, dim=1), dim=1)
-            result = compute_iou(pred, y1, result)  # 计算iou
-            print("Epoch:{}, test loss is {:.4f} \n".format(epoch, val_loss / len(val_loader)))
-            for i in range(8):
+        for x_batch1,y_batch1 in tqdm(val_loader):
+            for x1,y1 in zip(x_batch1,y_batch1):
+                y1 = torch.unsqueeze(y1, 0).long()
+                x1 = torch.unsqueeze(x1, 0)
+                y1 = torch.unsqueeze(y1, 0).long()
+                y1_ = make_one_hot(y1, numclasses).cuda(device=device_list[0])
+                x1, y1 = x1.cuda(device=device_list[0]), y1.cuda(device=device_list[0])
+                y_pred1 = model(x1)
+                #计算 dice_loss ce_loss
+                DLoss1=DiceLoss()
+                BLoss1 = MySoftmaxCrossEntropyLoss(numclasses)
+                loss1=lam*DLoss1(y_pred1,y1_)+(1-lam)*BLoss1(y_pred1,y1)#计算loss
+                val_loss+=loss1.item()
+                #计算metric
+                pred = torch.argmax(F.softmax(y_pred1, dim=1), dim=1)
+                result = compute_iou(pred, y1, result)  # 计算iou
+                print("Epoch:{}, test loss is {:.4f} \n".format(epoch, val_loss / len(val_loader)))
+        for i in range(8):
                 result_string = "{}: {:.4f} \n".format(i, result["TP"][i] / result["TA"][i])
                 print(result_string)
         #===========================================================
